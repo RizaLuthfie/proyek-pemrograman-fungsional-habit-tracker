@@ -31,7 +31,6 @@ const handleSubmit = async () => {
 
   submitting.value = true;
   try {
-    // Gabungkan tanggal dan jam menjadi ISO string
     const dateTimeString = `${activityDate.value}T${activityTime.value}:00`;
     const timestamp = new Date(dateTimeString).toISOString();
 
