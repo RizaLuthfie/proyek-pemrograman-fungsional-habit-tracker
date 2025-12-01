@@ -1,4 +1,4 @@
-use chrono::{Datelike, Duration, NaiveDate, Timelike, Utc, Weekday};
+use chrono::{Datelike, Duration, Local, NaiveDate, Timelike, Utc, Weekday};
 use rayon::prelude::*;
 use std::collections::HashMap;
 
@@ -9,10 +9,14 @@ use crate::models::{
 pub struct StatisticsCalculator;
 
 impl StatisticsCalculator {
+    // MODIFIED: Fixed timezone - gunakan Local timezone untuk date filtering
     pub fn calculate_daily_stats(habits: &[Habit], date: NaiveDate) -> DailyStats {
         let day_habits: Vec<&Habit> = habits
             .iter()
-            .filter(|h| h.timestamp.date_naive() == date)
+            .filter(|h| {
+                let local_date = h.timestamp.with_timezone(&Local).date_naive();
+                local_date == date
+            })
             .collect();
 
         let mut category_counts: HashMap<String, usize> = HashMap::new();
@@ -91,7 +95,7 @@ impl StatisticsCalculator {
         let month_habits: Vec<&Habit> = habits
             .iter()
             .filter(|h| {
-                let date = h.timestamp.date_naive();
+                let date = h.timestamp.with_timezone(&Local).date_naive();
                 date >= first_day && date <= last_day
             })
             .collect();
@@ -106,7 +110,7 @@ impl StatisticsCalculator {
             let week_habits: Vec<Habit> = month_habits
                 .iter()
                 .filter(|h| {
-                    let date = h.timestamp.date_naive();
+                    let date = h.timestamp.with_timezone(&Local).date_naive();
                     date >= current_week_start && date < current_week_start + Duration::days(7)
                 })
                 .cloned()
@@ -136,10 +140,10 @@ impl StatisticsCalculator {
         let active_days = habits
             .iter()
             .filter(|h| {
-                let date = h.timestamp.date_naive();
+                let date = h.timestamp.with_timezone(&Local).date_naive();
                 date >= first_day && date <= last_day
             })
-            .map(|h| h.timestamp.date_naive())
+            .map(|h| h.timestamp.with_timezone(&Local).date_naive())
             .collect::<std::collections::HashSet<_>>()
             .len();
 
@@ -174,8 +178,25 @@ impl StatisticsCalculator {
         }
     }
 
+    // MODIFIED: Improved trend calculation dengan threshold yang lebih baik
     fn calculate_trend(days: &[DailyStats]) -> Trend {
         if days.len() < 2 {
+            return Trend::Stable;
+        }
+
+        let total: usize = days.iter().map(|d| d.total_habits).sum();
+        
+        // Butuh minimal 5 habit untuk calculate trend
+        if total < 5 {
+            return Trend::Stable;
+        }
+
+        let days_with_data: Vec<&DailyStats> = days.iter()
+            .filter(|d| d.total_habits > 0)
+            .collect();
+        
+        // Butuh minimal 3 hari dengan data
+        if days_with_data.len() < 3 {
             return Trend::Stable;
         }
 
@@ -183,11 +204,15 @@ impl StatisticsCalculator {
         let first_half: usize = days[..mid].iter().map(|d| d.total_habits).sum();
         let second_half: usize = days[mid..].iter().map(|d| d.total_habits).sum();
 
-        let threshold = (first_half as f64 * 0.1) as usize;
+        let first_avg = first_half as f64 / mid as f64;
+        let second_avg = second_half as f64 / (days.len() - mid) as f64;
+        
+        let diff = second_avg - first_avg;
+        let threshold = 0.8;
 
-        if second_half > first_half + threshold {
+        if diff > threshold {
             Trend::Up
-        } else if second_half + threshold < first_half {
+        } else if diff < -threshold {
             Trend::Down
         } else {
             Trend::Stable
@@ -223,9 +248,10 @@ impl StatisticsCalculator {
             });
         }
 
+        // MODIFIED: Fixed timezone untuk hour calculation
         let mut hour_counts: HashMap<u32, usize> = HashMap::new();
         for habit in habits {
-            let hour = habit.timestamp.hour();
+            let hour = habit.timestamp.with_timezone(&Local).hour();
             *hour_counts.entry(hour).or_insert(0) += 1;
         }
 
@@ -246,9 +272,10 @@ impl StatisticsCalculator {
             });
         }
 
+        // MODIFIED: Fixed timezone untuk weekday calculation
         let mut weekday_counts: HashMap<Weekday, usize> = HashMap::new();
         for habit in habits {
-            let weekday = habit.timestamp.weekday();
+            let weekday = habit.timestamp.with_timezone(&Local).weekday();
             *weekday_counts.entry(weekday).or_insert(0) += 1;
         }
 
@@ -273,27 +300,33 @@ impl StatisticsCalculator {
         insights
     }
 
+    // MODIFIED: Streak calculation dari tanggal paling baru, bukan dari hari ini
     pub fn get_current_streak(habits: &[Habit]) -> usize {
         if habits.is_empty() {
             return 0;
         }
 
-        let mut dates: Vec<NaiveDate> = habits.iter().map(|h| h.timestamp.date_naive()).collect();
+        // Gunakan Local timezone untuk date extraction
+        let mut dates: Vec<NaiveDate> = habits
+            .iter()
+            .map(|h| h.timestamp.with_timezone(&Local).date_naive())
+            .collect();
         dates.sort();
         dates.dedup();
         dates.reverse();
 
-        let today = Utc::now().date_naive();
-        let yesterday = today - Duration::days(1);
-
-        if dates.is_empty() || (dates[0] != today && dates[0] != yesterday) {
+        if dates.is_empty() {
             return 0;
         }
 
+        // Mulai dari tanggal paling baru
         let mut streak = 1;
+        let mut expected_date = dates[0] - Duration::days(1);
+        
         for i in 1..dates.len() {
-            if dates[i - 1] - dates[i] == Duration::days(1) {
+            if dates[i] == expected_date {
                 streak += 1;
+                expected_date = expected_date - Duration::days(1);
             } else {
                 break;
             }

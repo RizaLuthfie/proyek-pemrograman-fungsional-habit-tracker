@@ -1,4 +1,4 @@
-use chrono::{Datelike, Duration, NaiveDate, Utc};
+use chrono::{Datelike, Duration, Local, NaiveDate, Utc};
 use tauri::State;
 use uuid::Uuid;
 
@@ -10,6 +10,7 @@ pub struct AppState {
     pub db: HabitDatabase,
 }
 
+// MODIFIED: Fixed default timestamp menggunakan Local timezone
 #[tauri::command]
 pub fn add_habit(input: HabitInput, state: State<AppState>) -> Result<Habit, String> {
     let timestamp = input
@@ -17,7 +18,7 @@ pub fn add_habit(input: HabitInput, state: State<AppState>) -> Result<Habit, Str
         .as_ref()
         .and_then(|ts| chrono::DateTime::parse_from_rfc3339(ts).ok())
         .map(|dt| dt.with_timezone(&Utc))
-        .unwrap_or_else(Utc::now);
+        .unwrap_or_else(|| Local::now().with_timezone(&Utc));
 
     let habit = Habit {
         id: Uuid::new_v4().to_string(),
@@ -135,19 +136,24 @@ pub fn get_current_streak(state: State<AppState>) -> Result<usize, String> {
     Ok(StatisticsCalculator::get_current_streak(&habits))
 }
 
+// MODIFIED: Fixed timezone - gunakan Local untuk today calculation
 #[tauri::command]
 pub fn get_today_habits(state: State<AppState>) -> Result<Vec<Habit>, String> {
-    let today = Utc::now();
+    let today = Local::now();
     let start_of_day = today
         .date_naive()
         .and_hms_opt(0, 0, 0)
         .unwrap()
-        .and_utc();
+        .and_local_timezone(Local)
+        .unwrap()
+        .with_timezone(&Utc);
     let end_of_day = today
         .date_naive()
         .and_hms_opt(23, 59, 59)
         .unwrap()
-        .and_utc();
+        .and_local_timezone(Local)
+        .unwrap()
+        .with_timezone(&Utc);
 
     state
         .db
@@ -157,7 +163,7 @@ pub fn get_today_habits(state: State<AppState>) -> Result<Vec<Habit>, String> {
 
 #[tauri::command]
 pub fn get_this_week_habits(state: State<AppState>) -> Result<Vec<Habit>, String> {
-    let today = Utc::now();
+    let today = Local::now();
     let days_since_monday = today.weekday().num_days_from_monday() as i64;
     let monday = today - Duration::days(days_since_monday);
 
@@ -165,12 +171,16 @@ pub fn get_this_week_habits(state: State<AppState>) -> Result<Vec<Habit>, String
         .date_naive()
         .and_hms_opt(0, 0, 0)
         .unwrap()
-        .and_utc();
+        .and_local_timezone(Local)
+        .unwrap()
+        .with_timezone(&Utc);
     let end_of_week = (monday + Duration::days(6))
         .date_naive()
         .and_hms_opt(23, 59, 59)
         .unwrap()
-        .and_utc();
+        .and_local_timezone(Local)
+        .unwrap()
+        .with_timezone(&Utc);
 
     state
         .db

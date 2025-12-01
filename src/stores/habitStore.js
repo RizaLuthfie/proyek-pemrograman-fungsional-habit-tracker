@@ -23,14 +23,22 @@ const formatDateForDisplay = (timestamp) => {
   });
 };
 
+// MODIFIED: Fixed timezone handling untuk week start calculation
 const getWeekStart = () => {
   const now = new Date();
+  const year = now.getFullYear();
+  const month = now.getMonth();
+  const date = now.getDate();
   const dayOfWeek = now.getDay();
-  const diff = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
-  const monday = new Date(now);
-  monday.setDate(now.getDate() - diff);
-  monday.setHours(0, 0, 0, 0);
-  return monday.toISOString().split("T")[0];
+  
+  const daysToMonday = dayOfWeek === 0 ? 6 : dayOfWeek - 1;
+  const monday = new Date(year, month, date - daysToMonday);
+  
+  const mondayYear = monday.getFullYear();
+  const mondayMonth = String(monday.getMonth() + 1).padStart(2, '0');
+  const mondayDate = String(monday.getDate()).padStart(2, '0');
+  
+  return `${mondayYear}-${mondayMonth}-${mondayDate}`;
 };
 
 const actions = {
